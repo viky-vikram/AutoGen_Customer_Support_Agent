@@ -136,7 +136,13 @@ def get_config() -> AppConfig:
 def init_session_state() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    st.session_state.setdefault("welcome_time", _now())
+    # The welcome card is the current empty-state prompt. Refresh its time
+    # while there is no conversation so a long-lived Streamlit session cannot
+    # display a stale timestamp after reruns or hot reloads.
+    if not st.session_state.messages:
+        st.session_state.welcome_time = _now()
+    else:
+        st.session_state.setdefault("welcome_time", _now())
     st.session_state.setdefault("chip_epoch", 0)
 
 
@@ -200,8 +206,9 @@ def render_assistant_bubble(
     """Assistant bubble: avatar + markdown content + timestamp + feedback."""
     with st.container(key=f"vat-arow-{idx}", horizontal=True, vertical_alignment="top"):
         st.markdown(ASSISTANT_AVATAR_HTML, unsafe_allow_html=True)
-        with st.container(key=f"vat-abubble-{idx}"):
-            st.markdown(content)
+        with st.container(key=f"vat-acol-{idx}"):
+            with st.container(key=f"vat-abubble-{idx}"):
+                st.markdown(content)
             st.markdown(assistant_meta_html(timestamp), unsafe_allow_html=True)
             if show_feedback:
                 st.feedback("thumbs", key=f"vat-fb-{idx}")
@@ -274,10 +281,11 @@ def handle_turn(config: AppConfig, user_query: str) -> None:
         {"role": m["role"], "content": m["content"]}
         for m in st.session_state.messages
     ]
+    user_timestamp = _now()
     st.session_state.messages.append(
-        {"role": "user", "content": user_query, "time": _now()}
+        {"role": "user", "content": user_query, "time": user_timestamp}
     )
-    st.markdown(user_message_html(user_query, _now()), unsafe_allow_html=True)
+    st.markdown(user_message_html(user_query, user_timestamp), unsafe_allow_html=True)
 
     try:
         with st.spinner("Routing your question to the right department..."):
@@ -330,7 +338,7 @@ def main() -> None:
 
     # Quick topics, input, and disclaimer live in the bottom-pinned bar,
     # exactly above/below the chat input like the design.
-    with st._bottom:
+    with st.bottom:
         render_quick_topics()
         typed = st.chat_input(
             "Ask about IT, Finance, HR, Admin, or Compliance...",

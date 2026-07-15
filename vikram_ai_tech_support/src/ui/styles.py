@@ -121,15 +121,18 @@ div[data-testid="stPopover"] button {
 
 /* assistant bubble built from a keyed container */
 div[class*="st-key-vat-arow-"] { gap: .65rem; }
+div[class*="st-key-vat-acol-"] {
+    width: fit-content !important; max-width: 62%;
+    gap: .35rem;
+}
 div[class*="st-key-vat-abubble-"] {
     background: #FCFCFF; border: 1px solid #E8EAF3;
     border-radius: 4px 14px 14px 14px;
     padding: .95rem 1.1rem .55rem 1.1rem;
-    width: fit-content !important; max-width: 62%;
-    gap: .35rem;
+    width: fit-content !important; max-width: 100%;
 }
 div[class*="st-key-vat-abubble-"] div[data-testid="stMarkdown"] p { margin-bottom: .35rem; }
-div[class*="st-key-vat-abubble-"] div[data-testid="stElementContainer"]:has([data-testid="stFeedback"]) {
+div[class*="st-key-vat-acol-"] div[data-testid="stElementContainer"]:has([data-testid="stFeedback"]) {
     display: flex; justify-content: flex-end;
 }
 
