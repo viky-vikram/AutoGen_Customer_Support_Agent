@@ -7,45 +7,120 @@ and the shared model client is closed before the rerun ends.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import streamlit as st
 
 st.set_page_config(
     page_title="Vikram AI Tech Support",
-    page_icon="🤖",
+    page_icon="🟣",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 from src.config import AppConfig, load_config
-from src.models.routing_models import DEPARTMENT_LABELS, SupportResponse
+from src.models.routing_models import SupportResponse
 from src.services.chat_service import ChatService
-from src.ui.styles import apply_custom_styles, render_footer, render_header
+from src.ui.styles import (
+    ASSISTANT_AVATAR_HTML,
+    apply_custom_styles,
+    assistant_meta_html,
+    department_strip_html,
+    render_disclaimer,
+    render_model_pill,
+    render_page_title,
+    render_side_label,
+    render_sidebar_logo,
+    render_status_card,
+    routing_card_html,
+    user_message_html,
+)
 from src.utils.async_utils import run_async
 from src.utils.exceptions import ConfigurationError, SupportAppError
 from src.utils.logging_config import get_logger, setup_logging
 
 logger = get_logger("app")
 
-DEPARTMENT_INFO: dict[str, str] = {
-    "🖥️ IT Support": "Accounts, passwords, email, devices, software, VPN, "
-                     "network, printers, application errors.",
-    "💰 Finance": "Invoices, payments, reimbursements, expenses, budgets, "
-                  "payroll process, vendors, purchase orders.",
-    "👥 Human Resources": "Leave, attendance, benefits, recruitment, "
-                          "onboarding, reviews, workplace policies, training.",
-    "🏢 Administration": "Facilities, meeting rooms, visitors, supplies, "
-                         "travel, maintenance, ID cards, cafeteria.",
-    "⚖️ Compliance": "Policies, data privacy, audits, ethics, conflicts of "
-                     "interest, records retention, reporting.",
+WELCOME_MESSAGE = (
+    "Hello! I'm Vikram AI Tech Support Assistant.\n\n"
+    "I can help you with questions related to IT, Finance, HR, Admin, "
+    "and Compliance.\n\n"
+    "How can I assist you today?"
+)
+
+DEPARTMENT_INFO: dict[str, tuple[str, str]] = {
+    "IT": (
+        ":material/computer:",
+        "Accounts, passwords, email, devices, software, VPN, network, "
+        "printers, and application errors.",
+    ),
+    "Finance": (
+        ":material/payments:",
+        "Invoices, payments, reimbursements, expenses, budgets, payroll "
+        "process, vendors, and purchase orders.",
+    ),
+    "HR": (
+        ":material/group:",
+        "Leave, attendance, benefits, recruitment, onboarding, reviews, "
+        "workplace policies, and training.",
+    ),
+    "Admin": (
+        ":material/domain:",
+        "Facilities, meeting rooms, visitors, supplies, travel, maintenance, "
+        "ID cards, and cafeteria.",
+    ),
+    "Compliance": (
+        ":material/verified_user:",
+        "Policies, data privacy, audits, ethics, conflicts of interest, "
+        "records retention, and reporting.",
+    ),
 }
 
 STARTER_QUESTIONS: list[str] = [
-    "I cannot connect to the company VPN.",
-    "How do I submit a reimbursement request?",
-    "What is the process for applying for leave?",
-    "How can I reserve a meeting room?",
-    "Where can I report a possible policy violation?",
+    "How do I reset my password?",
+    "What is the leave policy?",
+    "How do I submit an expense claim?",
+    "Where can I find the IT helpdesk?",
 ]
+
+QUICK_TOPIC_PROMPTS: dict[str, str] = {
+    ":material/wifi: VPN issue": "I cannot connect to the company VPN.",
+    ":material/event_available: Leave policy": "What is the process for applying for leave?",
+    ":material/meeting_room: Meeting room booking": "How can I reserve a meeting room?",
+    ":material/privacy_tip: Data privacy concern": "I need to report a possible data privacy violation.",
+}
+
+DEPARTMENT_STRIPS: dict[str, list[str]] = {
+    "IT": [
+        "🕘 IT helpdesk hours: Mon–Sat, 8:00 AM – 8:00 PM IST",
+        "🛡️ Your data is secure and confidential",
+        "🎧 Need more help? Contact IT Helpdesk",
+    ],
+    "Finance": [
+        "🕘 Finance hours: Mon–Fri, 9:00 AM – 6:00 PM IST",
+        "🛡️ Your data is secure and confidential",
+        "🎧 Need more help? Contact Finance Team",
+    ],
+    "HR": [
+        "🕘 HR hours: Mon–Fri, 9:00 AM – 6:00 PM IST",
+        "🛡️ Your data is secure and confidential",
+        "🎧 Need more help? Contact your HR Partner",
+    ],
+    "Admin": [
+        "🕘 Admin desk hours: Mon–Sat, 8:00 AM – 8:00 PM IST",
+        "🛡️ Your data is secure and confidential",
+        "🎧 Need more help? Contact the Facilities Team",
+    ],
+    "Compliance": [
+        "🕘 Compliance office hours: Mon–Fri, 9:00 AM – 6:00 PM IST",
+        "🛡️ Your report is treated confidentially",
+        "🎧 Need more help? Contact the Compliance Officer",
+    ],
+}
+
+
+def _now() -> str:
+    return datetime.now().strftime("%I:%M %p").lstrip("0")
 
 
 @st.cache_resource(show_spinner=False)
@@ -61,57 +136,123 @@ def get_config() -> AppConfig:
 def init_session_state() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    st.session_state.setdefault("welcome_time", _now())
+    st.session_state.setdefault("chip_epoch", 0)
 
 
 def render_sidebar(config: AppConfig) -> None:
     with st.sidebar:
-        st.subheader("Departments")
-        for title, description in DEPARTMENT_INFO.items():
-            with st.expander(title):
+        render_sidebar_logo()
+        render_model_pill(config.model)
+
+        render_side_label("Departments")
+        for department, (icon, description) in DEPARTMENT_INFO.items():
+            with st.expander(f"{icon} {department}"):
                 st.write(description)
 
-        st.divider()
-        st.subheader("Try asking")
+        render_side_label("Starter Questions")
         for question in STARTER_QUESTIONS:
-            if st.button(question, key=f"starter_{question}", width="stretch"):
+            if st.button(
+                question,
+                key=f"starter_{question}",
+                icon=":material/chat_bubble:",
+                width="stretch",
+            ):
                 st.session_state.queued_prompt = question
 
-        st.divider()
-        st.caption(f"Model: `{config.model}`")
-        st.caption(f"Messages in conversation: {len(st.session_state.messages)}")
-        if st.button("🗑️ Clear conversation", type="primary", width="stretch"):
+        if st.button(
+            "Clear Chat",
+            key="clear_chat",
+            icon=":material/delete:",
+            width="stretch",
+        ):
             st.session_state.messages = []
             st.session_state.pop("queued_prompt", None)
+            st.session_state.welcome_time = _now()
             logger.info("Conversation cleared by user.")
             st.rerun()
 
+        render_status_card()
 
-def render_routing_badges(department: str, confidence: float, clarification: bool) -> None:
-    """Show department + confidence badges (values come from validated models)."""
-    label = DEPARTMENT_LABELS.get(department, department)
-    confidence_pct = f"{round(confidence * 100)}%"
-    clarify_badge = (
-        '<span class="vat-badge clarify">Needs clarification</span>' if clarification else ""
-    )
-    st.markdown(
-        f'<div class="vat-badges">'
-        f'<span class="vat-badge">Department: {label}</span>'
-        f'<span class="vat-badge confidence">Routing confidence: {confidence_pct}</span>'
-        f"{clarify_badge}</div>",
-        unsafe_allow_html=True,
-    )
+
+def render_page_header() -> None:
+    left, right = st.columns([0.78, 0.22], vertical_alignment="center")
+    with left:
+        render_page_title()
+    with right:
+        with st.popover(":material/history: Chat History", width="stretch"):
+            if not st.session_state.messages:
+                st.caption("No messages yet.")
+            for message in st.session_state.messages[-20:]:
+                who = "You" if message["role"] == "user" else "Assistant"
+                snippet = message["content"][:90]
+                if len(message["content"]) > 90:
+                    snippet += "…"
+                st.caption(f"**{who}** · {message.get('time', '')} — {snippet}")
+
+
+def render_assistant_bubble(
+    content: str,
+    timestamp: str,
+    idx: str,
+    show_feedback: bool = True,
+) -> None:
+    """Assistant bubble: avatar + markdown content + timestamp + feedback."""
+    with st.container(key=f"vat-arow-{idx}", horizontal=True, vertical_alignment="top"):
+        st.markdown(ASSISTANT_AVATAR_HTML, unsafe_allow_html=True)
+        with st.container(key=f"vat-abubble-{idx}"):
+            st.markdown(content)
+            st.markdown(assistant_meta_html(timestamp), unsafe_allow_html=True)
+            if show_feedback:
+                st.feedback("thumbs", key=f"vat-fb-{idx}")
+
+
+def render_assistant_turn(message: dict, idx: str) -> None:
+    """Routing card, answer bubble, and department info strip for one answer."""
+    department = message.get("department")
+    if department:
+        st.markdown(
+            routing_card_html(
+                department,
+                message.get("confidence", 0.0),
+                message.get("brief_reason", ""),
+                message.get("needs_clarification", False),
+            ),
+            unsafe_allow_html=True,
+        )
+    render_assistant_bubble(message["content"], message.get("time", ""), idx)
+    strip_items = DEPARTMENT_STRIPS.get(department or "")
+    if strip_items and not message.get("needs_clarification"):
+        st.markdown(department_strip_html(strip_items), unsafe_allow_html=True)
 
 
 def render_history() -> None:
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            if message["role"] == "assistant" and message.get("department"):
-                render_routing_badges(
-                    message["department"],
-                    message.get("confidence", 0.0),
-                    message.get("needs_clarification", False),
-                )
-            st.markdown(message["content"])
+    render_assistant_bubble(
+        WELCOME_MESSAGE, st.session_state.welcome_time, "welcome", show_feedback=False
+    )
+    for i, message in enumerate(st.session_state.messages):
+        if message["role"] == "user":
+            st.markdown(
+                user_message_html(message["content"], message.get("time", "")),
+                unsafe_allow_html=True,
+            )
+        else:
+            render_assistant_turn(message, str(i))
+
+
+def render_quick_topics() -> None:
+    """Quick-topic chips above the input; selection queues a prompt."""
+    epoch = st.session_state.chip_epoch
+    choice = st.pills(
+        "Quick topics",
+        list(QUICK_TOPIC_PROMPTS),
+        key=f"chips_{epoch}",
+        label_visibility="collapsed",
+    )
+    if choice:
+        st.session_state.queued_prompt = QUICK_TOPIC_PROMPTS[choice]
+        st.session_state.chip_epoch += 1
+        st.rerun()
 
 
 async def process_query(
@@ -133,42 +274,34 @@ def handle_turn(config: AppConfig, user_query: str) -> None:
         {"role": m["role"], "content": m["content"]}
         for m in st.session_state.messages
     ]
-    st.session_state.messages.append({"role": "user", "content": user_query})
-    with st.chat_message("user"):
-        st.markdown(user_query)
-
-    with st.chat_message("assistant"):
-        try:
-            with st.spinner("Routing your question to the right department..."):
-                response = run_async(process_query(config, user_query, context))
-        except SupportAppError as exc:
-            logger.error("Turn failed: %s", exc.__class__.__name__)
-            st.error(exc.user_message)
-            return
-        except Exception as exc:  # absolute last resort — never show a trace
-            logger.exception("Unexpected error: %s", exc.__class__.__name__)
-            st.error("An unexpected error occurred. Please try again in a moment.")
-            return
-
-        render_routing_badges(
-            response.department, response.confidence, response.needs_clarification
-        )
-        st.markdown(response.answer)
-        if response.secondary_department:
-            st.caption(
-                "This may also involve "
-                f"{DEPARTMENT_LABELS.get(response.secondary_department)}."
-            )
-
     st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": response.answer,
-            "department": response.department,
-            "confidence": response.confidence,
-            "needs_clarification": response.needs_clarification,
-        }
+        {"role": "user", "content": user_query, "time": _now()}
     )
+    st.markdown(user_message_html(user_query, _now()), unsafe_allow_html=True)
+
+    try:
+        with st.spinner("Routing your question to the right department..."):
+            response = run_async(process_query(config, user_query, context))
+    except SupportAppError as exc:
+        logger.error("Turn failed: %s", exc.__class__.__name__)
+        st.error(exc.user_message)
+        return
+    except Exception as exc:  # absolute last resort — never show a trace
+        logger.exception("Unexpected error: %s", exc.__class__.__name__)
+        st.error("An unexpected error occurred. Please try again in a moment.")
+        return
+
+    assistant_message = {
+        "role": "assistant",
+        "content": response.answer,
+        "time": _now(),
+        "department": response.department,
+        "confidence": response.confidence,
+        "brief_reason": response.brief_reason,
+        "needs_clarification": response.needs_clarification,
+    }
+    render_assistant_turn(assistant_message, f"live-{len(st.session_state.messages)}")
+    st.session_state.messages.append(assistant_message)
 
 
 def main() -> None:
@@ -178,7 +311,7 @@ def main() -> None:
         config = get_config()
     except ConfigurationError as exc:
         apply_custom_styles()
-        render_header()
+        render_page_title()
         st.error(exc.user_message)
         st.info(
             "Setup: copy `.env.example` to `.env`, add your OpenAI API key, "
@@ -188,23 +321,36 @@ def main() -> None:
         return
 
     apply_custom_styles()
-    render_header()
-    st.caption(
-        "Ask a question and the manager agent will route it to the right "
-        "department specialist. For urgent issues, contact the relevant team "
-        "directly."
-    )
-
     render_sidebar(config)
+    render_page_header()
     render_history()
 
-    queued = st.session_state.pop("queued_prompt", None)
-    typed = st.chat_input("Type your support question here...", submit_mode="disable")
-    user_query = typed or queued
-    if user_query and user_query.strip():
-        handle_turn(config, user_query.strip())
+    # New turn output renders here, below the history.
+    turn_area = st.container()
 
-    render_footer(config.model)
+    # Quick topics, input, and disclaimer live in the bottom-pinned bar,
+    # exactly above/below the chat input like the design.
+    with st._bottom:
+        render_quick_topics()
+        typed = st.chat_input(
+            "Ask about IT, Finance, HR, Admin, or Compliance...",
+            accept_file=True,
+            file_type=None,
+            submit_mode="disable",
+        )
+        render_disclaimer()
+
+    typed_text = ""
+    if typed:
+        typed_text = (typed.text or "").strip()
+        if typed.files:
+            st.toast("📎 Attachments aren't processed yet — only your text is used.")
+
+    queued = st.session_state.pop("queued_prompt", None)
+    user_query = typed_text or (queued.strip() if queued else "")
+    if user_query:
+        with turn_area:
+            handle_turn(config, user_query)
 
 
 main()
