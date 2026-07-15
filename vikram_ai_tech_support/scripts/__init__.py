@@ -1,0 +1,1 @@
+"""Project document-generation scripts."""

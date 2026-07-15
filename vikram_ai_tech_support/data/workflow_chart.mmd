@@ -1,0 +1,34 @@
+---
+title: Vikram AI Tech - Multi-Agent Customer Support Workflow
+---
+flowchart TD
+    USER([User]) --> UI[Streamlit Chat UI]
+    UI --> VALIDATE[Input Validation]
+    VALIDATE --> MANAGER[Manager Agent]
+    MANAGER --> DECISION{Department Classification<br/>structured RoutingDecision}
+
+    DECISION -- "ambiguous / low confidence" --> CLARIFY[Clarification Question]
+    CLARIFY -.-> USER
+
+    DECISION --> IT[IT Agent]
+    DECISION --> FINANCE[Finance Agent]
+    DECISION --> HR[HR Agent]
+    DECISION --> ADMIN[Admin Agent]
+    DECISION --> COMPLIANCE[Compliance Agent]
+
+    IT --> RESPONSE[Final Response]
+    FINANCE --> RESPONSE
+    HR --> RESPONSE
+    ADMIN --> RESPONSE
+    COMPLIANCE --> RESPONSE
+
+    RESPONSE --> HISTORY[(Conversation History<br/>session state)]
+    HISTORY --> UI
+
+    classDef core fill:#1F4E79,color:#fff,stroke:#1F4E79
+    classDef dept fill:#3E8E7E,color:#fff,stroke:#1F4E79
+    classDef warn fill:#C0703A,color:#fff,stroke:#8a4f27
+
+    class USER,MANAGER,RESPONSE core
+    class IT,FINANCE,HR,ADMIN,COMPLIANCE dept
+    class CLARIFY warn
